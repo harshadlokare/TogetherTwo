@@ -1,0 +1,1019 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
+<title>Together: A 2D Coop Platformer</title>
+<style>
+  :root{
+    --bg:#0b0f1a;--ui:#101626;--accent:#27d3ff;--accent2:#ff3e8a;--text:#e8f0ff;
+    --tile:#263149;--tile2:#1f2942;--switch:#ffd24a;--door:#6ee7ff;--danger:#ff5a5a;
+    --goal:#7cff90;
+  }
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--text);font-family:Inter,system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif;-webkit-tap-highlight-color:transparent;overflow:hidden}
+  #wrap{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:10px}
+  canvas{background:linear-gradient(180deg,#0e1430,#0a0f22 55%);border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.5);touch-action:none}
+  .panel{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:auto}
+  .card{background:rgba(16,22,38,.9);border:1px solid #263149;border-radius:14px;padding:18px 18px;max-width:880px;width:min(92vw,880px);box-shadow:0 12px 40px rgba(0,0,0,.6)}
+  h1{margin:0 0 8px;font-size:28px;letter-spacing:.5px}
+  .row{display:flex;flex-wrap:wrap;gap:14px;margin-top:8px}
+  .pill{background:#16203a;border:1px solid #273457;border-radius:10px;padding:8px 10px;font-size:13px;white-space:nowrap}
+  .btn{appearance:none;border:0;background:linear-gradient(135deg,#2dd7ff,#7c5cff);color:white;font-weight:700;padding:12px 18px;border-radius:12px;font-size:16px;cursor:pointer;box-shadow:0 6px 18px rgba(124,92,255,.35);transition:transform .05s}
+  .btn:active{transform:translateY(1px)}
+  .sub{opacity:.9;font-size:14px;margin-top:6px}
+  .hidden{display:none}
+  #hud{position:absolute;top:10px;left:50%;transform:translateX(-50%);display:flex;gap:12px;align-items:center;background:rgba(16,22,38,.65);border:1px solid #263149;border-radius:999px;padding:6px 12px;backdrop-filter:blur(6px)}
+  #hud .tag{font-size:13px;padding:4px 8px;border-radius:8px;background:#16203a;border:1px solid #273457}
+  #hud .tag.accent{background:#0f2b46;border-color:#1c456e;color:#9fe6ff}
+  #hud .tag.accent2{background:#3a0f2a;border-color:#612349;color:#ff96c2}
+  #toast{position:absolute;bottom:12px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,.45);color:#fff;padding:8px 12px;border-radius:10px;font-size:13px;opacity:0;transition:opacity .25s}
+  .blink{animation:blink 1s infinite}
+  @keyframes blink{0%,100%{opacity:1}50%{opacity:.35}}
+  /* Simple sprite styles drawn on canvas; UI legend colors */
+  .legend{display:flex;gap:10px;flex-wrap:wrap;margin-top:8px}
+  .legend .chip{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:10px;background:#141c33;border:1px solid #273457;font-size:13px}
+  .chip i{width:16px;height:16px;border-radius:3px;display:inline-block}
+  .i-boy{background:#4fb3ff}
+  .i-girl{background:#ff5aa5}
+  .i-switch{background:#ffd24a}
+  .i-door{background:#6ee7ff}
+  .i-danger{background:#ff5a5a}
+  .i-goal{background:#7cff90}
+  /* Responsive canvas sizing wrapper */
+  #wrap{padding:10px}
+</style>
+</head>
+<body>
+<div id="wrap">
+  <canvas id="game" width="960" height="540"></canvas>
+  <div id="hud">
+    <div class="tag">Level <span id="levelNum">1</span>/7</div>
+    <div class="tag accent">P1: WASD + Space</div>
+    <div class="tag accent2">P2: Arrows + Ctrl</div>
+    <div class="tag">Deaths: <span id="deaths">0</span></div>
+    <div class="tag">Best: <span id="best">--:--</span></div>
+  </div>
+  <div id="toast"></div>
+</div>
+
+<!-- Start Screen -->
+<div class="panel" id="startPanel">
+  <div class="card">
+    <h1>Together</h1>
+    <div class="sub">A local co‑op platformer. Reach the goal together. If one fails, both retry.</div>
+    <div class="legend">
+      <div class="chip"><i class="i-boy"></i> Boy: WASD + Space (jump)</div>
+      <div class="chip"><i class="i-girl"></i> Girl: Arrows + Ctrl (jump)</div>
+      <div class="chip"><i class="i-switch"></i> Switch / Plate</div>
+      <div class="chip"><i class="i-door"></i> Door</div>
+      <div class="chip"><i class="i-danger"></i> Hazard</div>
+      <div class="chip"><i class="i-goal"></i> Goal</div>
+    </div>
+    <div class="row">
+      <button id="btnStart" class="btn">Start</button>
+      <div class="pill">2 Players • One Keyboard</div>
+      <div class="pill">7 Levels</div>
+      <div class="pill">Physics Jumps</div>
+    </div>
+  </div>
+</div>
+
+<!-- Game Over / Level Complete -->
+<div class="panel hidden" id="overlayPanel">
+  <div class="card" id="overlayCard">
+    <h1 id="overlayTitle">Level Complete</h1>
+    <div class="sub" id="overlaySub"></div>
+    <div class="row" style="margin-top:12px">
+      <button id="btnNext" class="btn">Next</button>
+      <button id="btnRetry" class="btn" style="background:linear-gradient(135deg,#ff6b6b,#ff3e8a)">Retry</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(() => {
+  const canvas = document.getElementById('game');
+  const ctx = canvas.getContext('2d');
+  const hudLevel = document.getElementById('levelNum');
+  const hudDeaths = document.getElementById('deaths');
+  const hudBest = document.getElementById('best');
+  const startPanel = document.getElementById('startPanel');
+  const overlay = document.getElementById('overlayPanel');
+  const overlayTitle = document.getElementById('overlayTitle');
+  const overlaySub = document.getElementById('overlaySub');
+  const btnStart = document.getElementById('btnStart');
+  const btnNext = document.getElementById('btnNext');
+  const btnRetry = document.getElementById('btnRetry');
+  const toast = document.getElementById('toast');
+
+  // Responsive canvas
+  function fitCanvas() {
+    const maxW = Math.min(window.innerWidth - 20, 1100);
+    const maxH = Math.min(window.innerHeight - 20, 700);
+    const aspect = 16/9;
+    let w = maxW, h = w / aspect;
+    if (h > maxH) { h = maxH; w = h * aspect; }
+    canvas.style.width = w + 'px';
+    canvas.style.height = h + 'px';
+  }
+  window.addEventListener('resize', fitCanvas);
+  fitCanvas();
+
+  // Audio
+  let actx;
+  function ensureAudio() {
+    if (!actx) {
+      actx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+  }
+  const SFX = {
+    beep(freq=600, time=0.08, type='sine', gain=0.05){
+      if(!actx) return;
+      const o = actx.createOscillator();
+      const g = actx.createGain();
+      o.type = type; o.frequency.value = freq;
+      g.gain.value = gain;
+      o.connect(g).connect(actx.destination);
+      o.start();
+      o.stop(actx.currentTime + time);
+    },
+    chirp(a=400,b=900,time=.15,type='triangle',gain=.05){
+      if(!actx) return;
+      const o = actx.createOscillator();
+      const g = actx.createGain();
+      o.type=type; o.frequency.setValueAtTime(a, actx.currentTime);
+      o.frequency.exponentialRampToValueAtTime(b, actx.currentTime+time);
+      g.gain.value=gain;
+      o.connect(g).connect(actx.destination);
+      o.start();
+      o.stop(actx.currentTime + time);
+    },
+    thud(freq=90,time=.09,gain=.12){
+      if(!actx) return;
+      const o = actx.createOscillator(); const g = actx.createGain();
+      o.type='square'; o.frequency.value=freq;
+      g.gain.value=gain; g.gain.exponentialRampToValueAtTime(0.001, actx.currentTime+time);
+      o.connect(g).connect(actx.destination); o.start(); o.stop(actx.currentTime+time);
+    }
+  };
+
+  // Input
+  const keys = {};
+  const keyMap = {
+    left:false,right:false,up:false,down:false,jump:false,
+    left2:false,right2:false,up2:false,down2:false,jump2:false
+  };
+  const keyDown = e => {
+    keys[e.code] = true;
+    mapKeys();
+    if (actx && actx.state === 'suspended') actx.resume();
+  };
+  const keyUp = e => { keys[e.code] = false; mapKeys(); };
+  function mapKeys(){
+    keyMap.left = keys['KeyA']||false;
+    keyMap.right = keys['KeyD']||false;
+    keyMap.up = keys['KeyW']||false;
+    keyMap.down = keys['KeyS']||false;
+    keyMap.jump = keys['Space']||false;
+
+    keyMap.left2 = keys['ArrowLeft']||false;
+    keyMap.right2 = keys['ArrowRight']||false;
+    keyMap.up2 = keys['ArrowUp']||false;
+    keyMap.down2 = keys['ArrowDown']||false;
+    keyMap.jump2 = keys['ControlLeft']||keys['ControlRight']||false;
+  }
+  window.addEventListener('keydown', keyDown);
+  window.addEventListener('keyup', keyUp);
+  window.addEventListener('blur', ()=>{ for(const k in keys) keys[k]=false; mapKeys(); });
+
+  // Physics
+  const GRAV = 2000;
+  const MOVE = 460;
+  const AIR = 0.75;
+  const JUMP_V = 760;
+  const COYOTE = 0.1;
+  const JUMP_BUFFER = 0.12;
+  const MAX_FALL = 1400;
+  const FRICTION = 1400;
+
+  // Camera
+  const cam = {x:0,y:0, w:canvas.width, h:canvas.height};
+
+  // Entities
+  function makePlayer(x,y,color,type){
+    return {
+      type, x, y, w:28, h:42, vx:0, vy:0, onGround:false, coyote:0, jumpBuf:0,
+      facing:1, state:'idle', pushDir:0, color,
+      spawnX:x, spawnY:y, dead:false
+    };
+  }
+
+  // Simple AABB
+  function aabb(a,b){
+    return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+  }
+
+  // Level format
+  // Each level has: spawn positions, static tiles, switches (plate or button), doors, movers, hazards, ladders, goals, logic
+  // All coordinates in pixels, world scrolls left->right, up is negative y
+  const levels = [];
+  const TILE = 48;
+
+  function plate(x,y,w=40,h=8,id){
+    return {type:'plate', x, y, w, h, id, pressed:false, holdCount:0};
+  }
+  function button(x,y,w=40,h=8,id, timed=0){
+    return {type:'button', x, y, w, h, id, pressed:false, timer:0, timed};
+  }
+  function door(x,y,w,h,id){
+    return {type:'door', x, y, w, h, id, open:false};
+  }
+  function mover(x,y,w,h,axis,range,speed,id){
+    return {type:'mover', x, y, w, h, axis, range, base:(axis==='x'?x:y), speed, t:0, id, dir:1, controlled:false};
+  }
+  function hazard(x,y,w,h){
+    return {type:'hazard', x, y, w, h};
+  }
+  function ladder(x,y,w,h,id){
+    return {type:'ladder', x, y, w, h, id};
+  }
+  function goal(x,y,w=40,h=56){ return {type:'goal', x, y, w, h}; }
+  function block(x,y,w,h){ return {type:'block', x, y, w, h, moving:false}; }
+
+  // Level 1 – Learning Together
+  levels.push({
+    name:'Learning Together',
+    spawn1:{x:80,y:300}, spawn2:{x:130,y:300},
+    tiles:[
+      block(0,420,1200,120), // ground
+      block(320,340,120,20),
+      block(500,290,120,20),
+      block(700,240,120,20),
+      block(940,200,80,20)
+    ],
+    switches:[ plate(180,412,48,8,'A') ],
+    doors:[ door(260,368,40,52,'A') ],
+    movers:[],
+    hazards:[],
+    ladders:[],
+    goals:[ goal(1000,144,40,56) ],
+    rules:[
+      // Door A opens when plate A pressed
+      {when:'plate', id:'A', action:'door', open:true}
+    ],
+    hint:'Hold the plate to open the door so your partner can pass.'
+  });
+
+  // Level 2 – Timed Doors
+  levels.push({
+    name:'Timed Doors',
+    spawn1:{x:80,y:300}, spawn2:{x:130,y:300},
+    tiles:[
+      block(0,420,1400,120),
+      block(360,360,100,18), block(520,305,100,18),
+      block(680,250,100,18),
+      block(880,250,100,18),
+      block(1080,305,100,18)
+    ],
+    switches:[ button(360,352,50,8,'B',1.6), button(1080,297,50,8,'B',1.6) ],
+    doors:[ door(720,232,140,18,'B') ],
+    movers:[],
+    hazards:[],
+    ladders:[],
+    goals:[ goal(1240,248,40,56) ],
+    rules:[ {when:'button', id:'B', action:'door', open:true, timed:true} ],
+    hint:'Press both buttons nearly together to hold the bridge.'
+  });
+
+  // Level 3 – Moving Platforms
+  levels.push({
+    name:'Moving Platforms',
+    spawn1:{x:80,y:300}, spawn2:{x:130,y:300},
+    tiles:[ block(0,420,1500,120), block(340,360,120,18), block(980,250,180,18) ],
+    switches:[ button(340,352,48,8,'C') ],
+    doors:[],
+    movers:[ mover(560,320,100,16,'y',160,80,'C'), mover(780,280,100,16,'y',160,80,'C') ],
+    hazards:[ hazard(640,420-12,200,12) ],
+    ladders:[],
+    goals:[ goal(1120,194,40,56) ],
+    rules:[
+      {when:'button', id:'C', action:'mover', toggle:true}
+    ],
+    hint:'One holds the controller button; the other rides.'
+  });
+
+  // Level 4 – Vertical Climb (ladders unlocked alternately)
+  levels.push({
+    name:'Vertical Climb',
+    spawn1:{x:60,y:360}, spawn2:{x:110,y:360},
+    tiles:[
+      block(0,420,1300,120),
+      block(300,340,120,18),
+      block(520,280,120,18),
+      block(760,220,120,18),
+      block(980,160,120,18),
+    ],
+    switches:[ button(300,332,48,8,'L1'), button(760,212,48,8,'L2') ],
+    doors:[],
+    movers:[],
+    hazards:[],
+    ladders:[ ladder(440,300,36,120,'L1'), ladder(900,180,36,120,'L2') ],
+    goals:[ goal(1120,104,40,56) ],
+    rules:[
+      {when:'button', id:'L1', action:'ladder', open:true},
+      {when:'button', id:'L2', action:'ladder', open:true},
+    ],
+    hint:'Unlock ladders for each other to climb higher.'
+  });
+
+  // Level 5 – Split Roles (distract obstacle)
+  levels.push({
+    name:'Split Roles',
+    spawn1:{x:60,y:360}, spawn2:{x:110,y:360},
+    tiles:[ block(0,420,1500,120), block(420,360,160,18), block(840,300,160,18) ],
+    switches:[ plate(420,352,52,8,'D') ],
+    doors:[ door(640,342,60,18,'D') ],
+    movers:[ mover(1060,260,120,16,'x',160,80,'E') ],
+    hazards:[ hazard(700,420-12,140,12) ],
+    ladders:[],
+    goals:[ goal(1240,244,40,56) ],
+    rules:[
+      {when:'plate', id:'D', action:'door', open:true},
+      {when:'near', id:'E', action:'mover-control'} // someone near controls direction
+    ],
+    hint:'One holds the bridge while the other crosses; then control the moving platform by standing near its base.'
+  });
+
+  // Level 6 – Precision Sync
+  levels.push({
+    name:'Precision Sync',
+    spawn1:{x:80,y:360}, spawn2:{x:130,y:360},
+    tiles:[ block(0,420,1700,120), block(420,320,120,18), block(680,260,120,18), block(940,200,120,18), block(1200,160,140,18) ],
+    switches:[ button(420,312,50,8,'S',1.2), button(940,192,50,8,'S',1.2) ],
+    doors:[ door(820,242,80,18,'S'), door(1080,182,80,18,'S') ],
+    movers:[],
+    hazards:[ hazard(520,420-12,140,12), hazard(1000,420-12,180,12) ],
+    ladders:[],
+    goals:[ goal(1320,104,40,56) ],
+    rules:[ {when:'button', id:'S', action:'door', open:true, timed:true} ],
+    hint:'Time your jumps and buttons together.'
+  });
+
+  // Level 7 – Final Trial
+  levels.push({
+    name:'Final Trial',
+    spawn1:{x:60,y:360}, spawn2:{x:110,y:360},
+    tiles:[ block(0,420,2200,120), block(380,340,120,18), block(720,300,120,18), block(980,260,120,18), block(1240,220,120,18), block(1500,180,120,18) ],
+    switches:[
+      plate(380,332,48,8,'F1'),
+      button(720,292,48,8,'F2',1.2),
+      button(1240,212,48,8,'F3',1.5)
+    ],
+    doors:[
+      door(600,322,80,18,'F1'), // needs plate
+      door(1120,242,80,18,'F2'), // needs timed sync
+      door(1680,162,120,18,'F3') // final door timed
+    ],
+    movers:[
+      mover(900,310,110,16,'y',150,80,'FM'),
+      mover(1400,200,110,16,'x',180,70,'FM2')
+    ],
+    hazards:[ hazard(540,420-12,140,12), hazard(1040,420-12,220,12), hazard(1560,420-12,220,12) ],
+    ladders:[ ladder(1320,200,36,120,'F3') ],
+    goals:[ goal(1860,124,48,56) ],
+    rules:[
+      {when:'plate', id:'F1', action:'door', open:true},
+      {when:'button', id:'F2', action:'door', open:true, timed:true},
+      {when:'button', id:'F3', action:'door', open:true, timed:true},
+      {when:'near', id:'FM', action:'mover-toggle'},
+      {when:'near', id:'FM2', action:'mover-control'}
+    ],
+    hint:'Combine plates, timing, movers, and teamwork to finish.'
+  });
+
+  let levelIndex = 0;
+  let world = null;
+  let players;
+  let deaths = 0;
+  let startTime = 0;
+  let bestTime = localStorage.getItem('together_best') || null;
+
+  function msToStr(ms){
+    const s = Math.floor(ms/1000);
+    const m = Math.floor(s/60);
+    const r = s%60;
+    return `${String(m).padStart(2,'0')}:${String(r).padStart(2,'0')}`;
+  }
+  function showToast(text, time=1500){
+    toast.textContent = text; toast.style.opacity = 1;
+    clearTimeout(showToast.t); showToast.t = setTimeout(()=>toast.style.opacity=0, time);
+  }
+
+  function buildLevel(i){
+    const L = levels[i];
+    players = [
+      makePlayer(L.spawn1.x, L.spawn1.y, '#4fb3ff', 'boy'),
+      makePlayer(L.spawn2.x, L.spawn2.y, '#ff5aa5', 'girl')
+    ];
+    world = {
+      tiles: JSON.parse(JSON.stringify(L.tiles)),
+      switches: JSON.parse(JSON.stringify(L.switches)),
+      doors: JSON.parse(JSON.stringify(L.doors)),
+      movers: JSON.parse(JSON.stringify(L.movers)),
+      hazards: JSON.parse(JSON.stringify(L.hazards)),
+      ladders: JSON.parse(JSON.stringify(L.ladders)),
+      goals: JSON.parse(JSON.stringify(L.goals)),
+      rules: L.rules.slice(),
+      name: L.name,
+      hint: L.hint
+    };
+    cam.x = 0; cam.y = 0;
+    hudLevel.textContent = (i+1);
+    if (i===0) startTime = performance.now();
+    showToast(L.name + ' — ' + L.hint, 2800);
+  }
+
+  // Game state
+  let state = 'menu'; // 'menu', 'play', 'overlay'
+  function startGame(){
+    ensureAudio();
+    if (actx && actx.state === 'suspended') actx.resume();
+    levelIndex = 0; deaths = 0; hudDeaths.textContent = deaths;
+    buildLevel(levelIndex);
+    startPanel.classList.add('hidden');
+    overlay.classList.add('hidden');
+    state = 'play';
+    SFX.chirp(400,900,0.18);
+  }
+  function nextLevel(){
+    levelIndex++;
+    if (levelIndex >= levels.length){
+      const elapsed = performance.now() - startTime;
+      if (!bestTime || elapsed < +bestTime){
+        bestTime = elapsed; localStorage.setItem('together_best', elapsed);
+      }
+      overlayTitle.textContent = 'You Did It — Together!';
+      overlaySub.textContent = `Total time: ${msToStr(elapsed)}${bestTime?`  •  Best: ${msToStr(bestTime)}`:''}`;
+      btnNext.textContent = 'Restart';
+      overlay.classList.remove('hidden');
+      state = 'overlay';
+      return;
+    }
+    buildLevel(levelIndex);
+    overlay.classList.add('hidden');
+    state = 'play';
+    SFX.chirp(500,1100,0.16);
+  }
+  function retryLevel(){
+    buildLevel(levelIndex);
+    overlay.classList.add('hidden');
+    state = 'play';
+  }
+
+  btnStart.addEventListener('click', startGame);
+  btnNext.addEventListener('click', ()=> {
+    if (levelIndex >= levels.length) { // restart
+      startGame(); return;
+    }
+    nextLevel();
+  });
+  btnRetry.addEventListener('click', retryLevel);
+  canvas.addEventListener('pointerdown', ()=>{ if(state==='menu'){ startGame(); } });
+
+  // Collision resolution with platforms and movers
+  function rects() {
+    return world.tiles.concat(world.movers).concat(world.doors.filter(d=>!d.open));
+  }
+
+  function integratePlayer(p, dt){
+    const left = (p.type==='boy') ? keyMap.left : keyMap.left2;
+    const right = (p.type==='boy') ? keyMap.right : keyMap.right2;
+    const up = (p.type==='boy') ? keyMap.up : keyMap.up2;
+    const down = (p.type==='boy') ? keyMap.down : keyMap.down2;
+    const jumpKey = (p.type==='boy') ? keyMap.jump : keyMap.jump2;
+
+    // Horizontal input
+    let accel = MOVE * (p.onGround ? 1 : AIR);
+    let target = (left?-1:0) + (right?1:0);
+    p.vx += target * accel * dt;
+    // Friction
+    if (!left && !right && p.onGround){
+      if (Math.abs(p.vx) < FRICTION*dt) p.vx = 0; else p.vx -= Math.sign(p.vx)*FRICTION*dt;
+    }
+    // Clamp speed
+    const maxSpeed = 260;
+    p.vx = Math.max(-maxSpeed, Math.min(maxSpeed, p.vx));
+
+    // Gravity
+    p.vy += GRAV * dt;
+    if (p.vy > MAX_FALL) p.vy = MAX_FALL;
+
+    // Jump buffering & coyote
+    if (jumpKey) p.jumpBuf = JUMP_BUFFER;
+    else p.jumpBuf = Math.max(0, p.jumpBuf - dt);
+    p.coyote = Math.max(0, p.coyote - dt);
+
+    if (p.jumpBuf > 0 && (p.onGround || p.coyote>0)) {
+      p.vy = -JUMP_V;
+      p.onGround = false;
+      p.coyote = 0;
+      p.jumpBuf = 0;
+      SFX.beep(p.type==='boy'?550:650,0.06,'square',0.045);
+    }
+
+    // Apply movement with collision
+    const solids = rects();
+
+    // Horizontal movement
+    p.x += p.vx * dt;
+    let touchedMover = null;
+    for (const s of solids){
+      if (aabb(p,s)){
+        const overlapL = (p.x + p.w) - s.x;
+        const overlapR = (s.x + s.w) - p.x;
+        if (overlapL < overlapR){ // push left
+          p.x -= overlapL;
+        } else {
+          p.x += overlapR;
+        }
+        p.vx = 0;
+        if (s.type==='mover') { touchedMover = s; }
+      }
+    }
+
+    // Vertical movement
+    p.y += p.vy * dt;
+    let standingOn = null;
+    for (const s of solids){
+      if (aabb(p,s)){
+        const overlapT = (p.y + p.h) - s.y;
+        const overlapB = (s.y + s.h) - p.y;
+        if (overlapT < overlapB){ // from top
+          p.y -= overlapT;
+          p.vy = 0;
+          p.onGround = true;
+          p.coyote = COYOTE;
+          standingOn = s;
+        } else { // from bottom
+          p.y += overlapB;
+          if (p.vy < 0) p.vy = 0;
+        }
+      }
+    }
+
+    // Ride moving platforms
+    if (standingOn && standingOn.type==='mover'){
+      p.x += standingOn.vx * dt;
+      p.y += standingOn.vy * dt;
+    }
+
+    // Ladders: if overlapping ladder and pressing up/down, damp gravity for ease
+    let onLadder = false;
+    for (const l of world.ladders){
+      if (aabb(p,l)){
+        onLadder = true;
+        if (up) { p.vy = -220; }
+        else if (down) { p.vy = 220; }
+        else { p.vy *= 0.5; }
+        p.onGround = true; // treat as grounded for coyote
+      }
+    }
+
+    // State updates for animation
+    if (!p.onGround){
+      p.state = p.vy < -50 ? 'jump' : 'fall';
+    } else if (Math.abs(p.vx) > 15){
+      p.state = 'run';
+    } else {
+      p.state = 'idle';
+    }
+    p.facing = (right?1:(left?-1:p.facing));
+
+    // Hazards and void
+    const VOID_Y = 1000;
+    for (const h of world.hazards){
+      if (aabb(p,h)) fail();
+    }
+    if (p.y > VOID_Y) fail();
+
+    // Pushing state when touching a movable (mover considered) from side
+    p.pushDir = 0;
+    if (touchedMover) {
+      p.pushDir = (p.x + p.w/2 < touchedMover.x + touchedMover.w/2) ? 1 : -1;
+    }
+
+    // Goal check happens outside with both players
+  }
+
+  function updateSwitches(dt){
+    // Reset hold counts
+    for (const sw of world.switches){
+      sw.holdCount = 0;
+    }
+    // Plates pressed by player standing
+    for (const sw of world.switches){
+      if (sw.type==='plate'){
+        for (const p of players){
+          // Consider pressed if player's feet within plate bounds
+          const feet = {x:p.x, y:p.y+p.h-2, w:p.w, h:4};
+          if (aabb(feet, sw)) sw.holdCount++;
+        }
+        const prev = sw.pressed;
+        sw.pressed = sw.holdCount>0;
+        if (sw.pressed && !prev) SFX.beep(800,0.05,'triangle',0.05);
+        if (!sw.pressed && prev) SFX.beep(500,0.05,'triangle',0.04);
+      } else if (sw.type==='button'){
+        // Button is pressed when player touches from top and is grounded
+        for (const p of players){
+          const feet = {x:p.x, y:p.y+p.h-2, w:p.w, h:4};
+          if (aabb(feet, sw)){
+            sw.pressed = true;
+            if (sw.timed) sw.timer = sw.timed;
+          }
+        }
+        if (sw.timed){
+          if (sw.timer>0) sw.timer -= dt;
+          if (sw.timer<0) sw.timer = 0;
+        }
+      }
+    }
+
+    // Apply rules
+    for (const r of world.rules){
+      if (r.when==='plate'){
+        const sw = world.switches.find(s=>s.id===r.id && s.type==='plate');
+        const active = sw && sw.pressed;
+        if (r.action==='door'){
+          const d = world.doors.find(d=>d.id===r.id);
+          if (d) d.open = !!active;
+        }
+      } else if (r.when==='button'){
+        const sws = world.switches.filter(s=>s.id===r.id && s.type==='button');
+        const anyPressed = sws.some(s=>s.pressed);
+        const timersActive = sws.some(s=>s.timer>0);
+        const active = r.timed ? (timersActive && sws.every(s=>s.timer>0)) : anyPressed;
+        // decay pressed flag so it requires new touch if not timed
+        if (!r.timed) for (const s of sws) s.pressed=false;
+        if (r.action==='door'){
+          const d = world.doors.find(d=>d.id===r.id);
+          if (d) d.open = !!active;
+        } else if (r.action==='mover'){
+          const ms = world.movers.filter(m=>m.id===r.id);
+          for (const m of ms){
+            if (r.toggle){ m.active = !!active; }
+          }
+        } else if (r.action==='ladder'){
+          const l = world.ladders.find(l=>l.id===r.id);
+          if (l) l.open = !!active;
+        }
+      } else if (r.when==='near'){
+        // proximity interactions for movers
+        const ms = world.movers.filter(m=>m.id===r.id);
+        for (const m of ms){
+          const near = players.some(p=>{
+            const dx = Math.abs((p.x+p.w/2)-(m.x+m.w/2));
+            const dy = Math.abs((p.y+p.h/2)-(m.y+m.h/2));
+            return dx<140 && dy<120;
+          });
+          if (r.action==='mover-toggle'){
+            if (near && !m._nearPrev){ m.dir *= -1; SFX.beep(720,0.05,'sawtooth',0.05); }
+            m._nearPrev = near;
+          } else if (r.action==='mover-control'){
+            m.controlled = !!near;
+          }
+        }
+      }
+    }
+
+    // Doors as solids
+    // Ladders: only usable if open or no id
+    // Already handled in draw and integrate
+  }
+
+  function updateMovers(dt){
+    for (const m of world.movers){
+      let vx=0, vy=0;
+      if (m.controlled){
+        // Determine direction based on which player is closer left/right/up/down
+        let influence = 0;
+        for (const p of players){
+          const dx = (p.x+p.w/2) - (m.x+m.w/2);
+          const dy = (p.y+p.h/2) - (m.y+m.h/2);
+          if (m.axis==='x') influence += (dx>0?1:-1);
+          else influence += (dy>0?1:-1);
+        }
+        m.dir = Math.sign(influence) || m.dir;
+      }
+      const sp = m.speed * (m.active===false ? 0 : 1);
+      if (m.axis==='x'){
+        m.x += m.dir * m.speed * dt;
+        const off = Math.abs(m.x - m.base);
+        if (off > m.range){ m.x = m.base + Math.sign(m.dir)*m.range; m.dir*=-1; }
+        vx = m.dir * m.speed;
+      } else {
+        m.y += m.dir * m.speed * dt;
+        const off = Math.abs(m.y - m.base);
+        if (off > m.range){ m.y = m.base + Math.sign(m.dir)*m.range; m.dir*=-1; }
+        vy = m.dir * m.speed;
+      }
+      m.vx = vx; m.vy = vy;
+    }
+  }
+
+  function updateDoorsLadders(){
+    // prune door open state influences collisions in rects()
+    // ladders: when not open, shrink to zero
+    for (const l of world.ladders){
+      l._enabled = (l.open===undefined) ? true : !!l.open;
+    }
+  }
+
+  function bothAtGoal(){
+    const g = world.goals[0];
+    return players.every(p => aabb(p, g));
+  }
+
+  function fail(){
+    if (state!=='play') return;
+    deaths++; hudDeaths.textContent = deaths;
+    state = 'respawn';
+    SFX.thud(100,0.1,0.2);
+    showToast('Try again!', 800);
+    setTimeout(()=>{ buildLevel(levelIndex); state='play'; }, 350);
+  }
+
+  // Draw helpers
+  function drawRect(x,y,w,h,color,rad=6){
+    ctx.fillStyle=color;
+    if (rad<=0){ ctx.fillRect(x,y,w,h); return; }
+    const r = Math.min(rad, Math.min(w,h)/2);
+    ctx.beginPath();
+    ctx.moveTo(x+r,y);
+    ctx.arcTo(x+w,y,x+w,y+h,r);
+    ctx.arcTo(x+w,y+h,x,y+h,r);
+    ctx.arcTo(x,y+h,x,y,r);
+    ctx.arcTo(x,y,x+w,y,r);
+    ctx.closePath(); ctx.fill();
+  }
+
+  function drawWorld(){
+    // Background parallax
+    const px = cam.x * 0.4;
+    ctx.save();
+    ctx.translate(-px, 0);
+    for (let i=0;i<10;i++){
+      const x = i*320;
+      ctx.fillStyle = '#0c132a';
+      drawRect(x, 80, 180, 6, '#0c132a',3);
+      ctx.fillStyle = '#0d1633';
+      drawRect(x+100, 140, 220, 6, '#0d1633',3);
+    }
+    ctx.restore();
+
+    // Static tiles
+    for (const t of world.tiles){
+      const x = Math.floor(t.x - cam.x), y = Math.floor(t.y - cam.y);
+      drawRect(x,y,t.w,t.h,ctx.createLinearGradient(0,0,0,1));
+      // tile gradient
+      const g = ctx.createLinearGradient(x, y, x, y+t.h);
+      g.addColorStop(0, '#2a3556'); g.addColorStop(1,'#1a2341');
+      drawRect(x,y,t.w,t.h,g,8);
+      // edge
+      ctx.fillStyle='rgba(255,255,255,0.06)';
+      ctx.fillRect(x,y, t.w, 3);
+    }
+
+    // Doors
+    for (const d of world.doors){
+      const x = d.x - cam.x, y = d.y - cam.y;
+      if (!d.open){
+        const g = ctx.createLinearGradient(0, y, 0, y+d.h);
+        g.addColorStop(0,'#5ee4ff'); g.addColorStop(1,'#38b7d6');
+        drawRect(x,y,d.w,d.h,g,6);
+        // stripes
+        ctx.fillStyle='rgba(255,255,255,.2)';
+        for (let i=0;i<d.w;i+=12){ ctx.fillRect(x+i,y,6,d.h); }
+      } else {
+        ctx.globalAlpha=0.2;
+        drawRect(x,y,d.w,d.h,'#6ee7ff',6);
+        ctx.globalAlpha=1;
+      }
+    }
+
+    // Movers
+    for (const m of world.movers){
+      const x = m.x - cam.x, y = m.y - cam.y;
+      const g = ctx.createLinearGradient(x,y,x,y+m.h);
+      g.addColorStop(0,'#43507a'); g.addColorStop(1,'#2b3a60');
+      drawRect(x,y,m.w,m.h,g,6);
+      // arrows
+      ctx.fillStyle = 'rgba(255,255,255,.3)';
+      if (m.axis==='x'){
+        ctx.fillRect(x+8,y+m.h/2-2, m.w-16, 4);
+      } else {
+        ctx.fillRect(x+m.w/2-2,y+6, 4, m.h-12);
+      }
+    }
+
+    // Hazards
+    for (const h of world.hazards){
+      const x=h.x-cam.x, y=h.y-cam.y;
+      const g = ctx.createLinearGradient(x,y,x,y+h.h);
+      g.addColorStop(0,'#ff8282'); g.addColorStop(1,'#ff5151');
+      drawRect(x,y,h.w,h.h,g,6);
+      // triangles
+      ctx.fillStyle='rgba(0,0,0,.15)';
+      for(let i=0;i<h.w;i+=14){
+        ctx.beginPath();
+        ctx.moveTo(x+i,y);
+        ctx.lineTo(x+i+7,y+h.h);
+        ctx.lineTo(x+i+14,y);
+        ctx.closePath(); ctx.fill();
+      }
+    }
+
+    // Ladders
+    for (const l of world.ladders){
+      if (l._enabled===false) continue;
+      const x=l.x-cam.x, y=l.y-cam.y;
+      drawRect(x,y,l.w, l.h, '#7049ff20',6);
+      ctx.strokeStyle = '#9f8dff';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(x+8,y+8); ctx.lineTo(x+8,y+l.h-8);
+      ctx.moveTo(x+l.w-8,y+8); ctx.lineTo(x+l.w-8,y+l.h-8);
+      for(let yy=y+12;yy<y+l.h-12; yy+=12){
+        ctx.moveTo(x+8,yy); ctx.lineTo(x+l.w-8,yy);
+      }
+      ctx.stroke();
+    }
+
+    // Switches
+    for (const s of world.switches){
+      const x=s.x-cam.x, y=s.y-cam.y;
+      if (s.type==='plate'){
+        drawRect(x,y,s.w,s.h, s.pressed?'#ffc93d':'#ffd24a', 4);
+      } else {
+        drawRect(x,y,s.w,s.h, s.timer>0?'#ffb14a':'#ffcf6e', 4);
+        drawRect(x+6,y-10, s.w-12, 8, '#705a2a', 4);
+      }
+    }
+
+    // Goal
+    for (const g of world.goals){
+      const x=g.x-cam.x, y=g.y-cam.y;
+      drawRect(x,y,g.w,g.h,'#7cff9033',8);
+      ctx.fillStyle='#7cff90';
+      ctx.fillRect(x+6,y+6,g.w-12,g.h-12);
+      ctx.fillStyle='#145a22';
+      ctx.fillRect(x+10,y+10,g.w-20,6);
+      ctx.fillRect(x+10,y+g.h-16,g.w-20,6);
+    }
+  }
+
+  function drawPlayer(p){
+    const x = Math.floor(p.x - cam.x), y = Math.floor(p.y - cam.y);
+    // Shadow
+    ctx.globalAlpha=0.25;
+    ctx.beginPath();
+    ctx.ellipse(x+p.w/2, y+p.h+6, p.w*0.55, 6, 0, 0, Math.PI*2);
+    ctx.fillStyle='#000'; ctx.fill();
+    ctx.globalAlpha=1;
+
+    // Body proportions: big head, small body
+    // Colors
+    const main = p.color;
+    const dark = '#0a0f18';
+    const cloth = (p.type==='boy') ? '#2a6dff' : '#ff3e8a';
+    const cloth2 = (p.type==='boy') ? '#1b3b8a' : '#7a1e49';
+    const skin = '#ffd7b1';
+    const hair = (p.type==='boy') ? '#2f3b4a' : '#3b2a1f';
+
+    // Motion bob
+    const t = performance.now()/1000;
+    const runPhase = (p.state==='run') ? Math.sin(t*18) : 0;
+
+    // Head
+    const headW = 26, headH = 24;
+    const hx = x + p.w/2 - headW/2;
+    const hy = y - 8 + (p.state==='run'?Math.abs(runPhase)*1.2:0) + (p.state==='fall'?2:0);
+    drawRect(hx, hy, headW, headH, skin, 10);
+    // Hair
+    if (p.type==='boy'){
+      drawRect(hx+2, hy, headW-4, 10, hair, 6);
+      drawRect(hx+2, hy+2, headW-10, 6, hair, 4);
+    } else {
+      // ponytail
+      ctx.fillStyle=hair;
+      ctx.beginPath();
+      ctx.ellipse(hx+headW-4, hy+10, 6, 8, 0, 0, Math.PI*2);
+      ctx.fill();
+      drawRect(hx+3, hy, headW-6, 10, hair, 6);
+    }
+    // Face
+    ctx.fillStyle=dark;
+    ctx.fillRect(hx+6, hy+10, 4, 4);
+    ctx.fillRect(hx+headW-10, hy+10, 4, 4);
+    ctx.fillRect(hx+headW/2-2, hy+16, 4, 2);
+
+    // Body
+    const bodyW = 22, bodyH = 22;
+    const bx = x + p.w/2 - bodyW/2;
+    const by = y + 8;
+    drawRect(bx, by, bodyW, bodyH, cloth, 6);
+    // Hoodie/Jacket details
+    ctx.fillStyle = cloth2;
+    ctx.fillRect(bx+2, by+4, bodyW-4, 4);
+    // Arms (simple)
+    const armY = by+8 + (p.state==='run'?runPhase*2:0);
+    drawRect(bx-6, armY, 6, 10, cloth, 4);
+    drawRect(bx+bodyW, armY, 6, 10, cloth, 4);
+    // Legs
+    const legY = by+bodyH-2;
+    const stride = (p.state==='run')?runPhase*5:0;
+    const legColor = (p.type==='boy') ? '#2c3b55' : '#3b2a6d';
+    drawRect(bx+2 + stride, legY, 7, 14, legColor, 3);
+    drawRect(bx+bodyW-9 - stride, legY, 7, 14, legColor, 3);
+    // Shoes
+    ctx.fillStyle = (p.type==='boy') ? '#9ad7ff' : '#ff8fbe';
+    ctx.fillRect(bx+2 + stride, legY+12, 7, 4);
+    ctx.fillRect(bx+bodyW-9 - stride, legY+12, 7, 4);
+
+    // Push hint
+    if (p.pushDir!==0){
+      ctx.fillStyle='rgba(255,255,255,.25)';
+      ctx.fillRect(x + (p.pushDir>0?p.w: -6), y+12, 6, 18);
+    }
+
+    // State icon
+    // none needed, animation conveys
+  }
+
+  function updateCamera(){
+    // Shared camera centered between players
+    const mx = (players[0].x + players[1].x)/2;
+    const my = (players[0].y + players[1].y)/2;
+    const targetX = mx - cam.w/2 + 80;
+    const targetY = my - cam.h/2 + 40;
+    const lerp = 0.1;
+    cam.x += (targetX - cam.x) * lerp;
+    cam.y += (targetY - cam.y) * lerp;
+    if (cam.x<0) cam.x=0; if (cam.y<0) cam.y=0;
+  }
+
+  function drawUI(){
+    // Level name top-left
+    ctx.fillStyle='rgba(255,255,255,.08)';
+    ctx.fillRect(10,10,180,36);
+    ctx.fillStyle='#9fe6ff';
+    ctx.font='bold 16px system-ui, sans-serif';
+    ctx.fillText(`Level ${levelIndex+1}: ${levels[levelIndex].name}`, 18, 32);
+  }
+
+  // Main loop
+  let last = 0;
+  function loop(t){
+    requestAnimationFrame(loop);
+    if (!last) last = t;
+    const dt = Math.min(0.033, (t-last)/1000); last = t;
+
+    if (state==='play'){
+      updateSwitches(dt);
+      updateMovers(dt);
+      updateDoorsLadders();
+      for (const p of players) p.onGround=false;
+      for (const p of players) integratePlayer(p, dt);
+
+      // Check level complete: both in goal and doors requiring presence
+      if (bothAtGoal()){
+        // Ensure "Doors open only if both present" already modeled via id’d doors where needed
+        SFX.chirp(600,1200,0.2);
+        state='pause';
+        setTimeout(()=>{
+          overlayTitle.textContent='Level Complete';
+          overlaySub.textContent = `Great teamwork!`;
+          btnNext.textContent='Next';
+          overlay.classList.remove('hidden');
+          state='overlay';
+        }, 100);
+      }
+
+      updateCamera();
+    }
+
+    // Render
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+    drawWorld();
+    for (const p of players) drawPlayer(p);
+    drawUI();
+
+    // Timers HUD
+    const elapsed = (state==='menu') ? 0 : performance.now()-startTime;
+    hudBest.textContent = bestTime ? msToStr(bestTime) : '--:--';
+  }
+  requestAnimationFrame(loop);
+
+})();
+</script>
+</body>
+</html>
